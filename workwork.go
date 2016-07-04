@@ -98,7 +98,7 @@ func (w *Worker) Queue(msg interface{}) error {
 
 func (w *Worker) sendAsync(msgs []interface{}) {
 	w.upmtx.Lock()
-	for w.upcount >= 1000 {
+	for w.upcount >= internalGoRoutineAsyncMax {
 		w.upcond.Wait()
 	}
 	w.upcount++
