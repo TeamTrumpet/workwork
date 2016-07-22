@@ -25,7 +25,7 @@ const (
 
 	// internalGoRoutineAsyncMax is the maximum amount of processing jobs allowed
 	// at a time.
-	internalGoRoutineAsyncMax = 1000
+	internalGoRoutineAsyncMax = 500
 )
 
 // WorkFunc describes a function that is executed with the msg for the worker.
@@ -36,6 +36,7 @@ type Worker struct {
 	Interval time.Duration
 	Size     int
 	Verbose  bool
+	Logger   *log.Logger
 
 	work     WorkFunc
 	msgs     chan interface{}
@@ -51,19 +52,31 @@ type Worker struct {
 	upcount int
 }
 
+// WorkerOpts is the options that are needed to create a new Worker.
+type WorkerOpts struct {
+	Interval time.Duration
+	Size     int
+	Verbose  bool
+	Logger   *log.Logger
+}
+
 // NewWorker creates a new worker based on the spec provided. It will allow the
 // queing of work which will flush when either the Size is reached in the buffer
 // or the interval is reached, which ever occurs first.
-func NewWorker(size int, interval time.Duration, work WorkFunc) *Worker {
+func NewWorker(work WorkFunc, opts WorkerOpts) *Worker {
 	w := &Worker{
-		Interval: interval,
-		Size:     size,
-		Verbose:  false,
+		Interval: opts.Interval,
+		Size:     opts.Size,
+		Verbose:  opts.Verbose,
+		Logger:   opts.Logger,
 		work:     work,
 		msgs:     make(chan interface{}),
 		quit:     make(chan struct{}),
 		shutdown: make(chan struct{}),
 	}
+
+	// setup the locker for the condition
+	w.upcond.L = &w.upmtx
 
 	return w
 }
@@ -71,20 +84,23 @@ func NewWorker(size int, interval time.Duration, work WorkFunc) *Worker {
 // Verbose log.
 func (w *Worker) verbose(function, msg string, args ...interface{}) {
 	if w.Verbose {
-		log.Printf("workwork : worker : %s : %s", function, fmt.Sprintf(msg, args...))
+		w.Logger.Printf("workwork : worker : %s : %s", function, fmt.Sprintf(msg, args...))
 	}
 }
 
 // Error log.
 func (w *Worker) error(function string, err error, msg string, args ...interface{}) {
-	log.Printf("workwork : worker : %s : %s : %s", function, err.Error(), fmt.Sprintf(msg, args...))
+	w.Logger.Printf("workwork : worker : %s : %s : %s", function, err.Error(), fmt.Sprintf(msg, args...))
 }
 
+// startLoop starts the main looping routine that will consume the queue
+// elements.
 func (w *Worker) startLoop() {
 	go w.loop()
 }
 
-// Queue adds the msg to the worker to be processed.
+// Queue adds the msg to the worker to be processed as well as verifying that
+// the msg passed in is not a pointer and that the processing queue is started.
 func (w *Worker) Queue(msg interface{}) error {
 	if rv := reflect.ValueOf(msg); rv.Kind() == reflect.Ptr {
 		return errors.New("can't queue a pointer")
@@ -96,6 +112,7 @@ func (w *Worker) Queue(msg interface{}) error {
 	return nil
 }
 
+// sendAsync sends a batch of messages to the worker function asynchronously.
 func (w *Worker) sendAsync(msgs []interface{}) {
 	w.upmtx.Lock()
 	for w.upcount >= internalGoRoutineAsyncMax {
@@ -104,11 +121,13 @@ func (w *Worker) sendAsync(msgs []interface{}) {
 	w.upcount++
 	w.upmtx.Unlock()
 	w.wg.Add(1)
+
 	go func() {
 		err := w.work(msgs)
 		if err != nil {
 			w.error("sendAsync", err, "couldn't work, an error occured executing the work")
 		}
+
 		w.upmtx.Lock()
 		w.upcount--
 		w.upcond.Signal()

@@ -41,6 +41,7 @@ type Worker struct {
     Interval time.Duration
     Size     int
     Verbose  bool
+    Logger   *log.Logger
     // contains filtered or unexported fields
 }
 ```
@@ -56,7 +57,7 @@ Worker is the instance that does the actual queuing and processing.
 
 ### func NewWorker
 ``` go
-func NewWorker(size int, interval time.Duration, work WorkFunc) *Worker
+func NewWorker(work WorkFunc, opts WorkerOpts) *Worker
 ```
 NewWorker creates a new worker based on the spec provided. It will allow the
 queing of work which will flush when either the Size is reached in the buffer
@@ -77,7 +78,29 @@ Close and flush cache requests.
 ``` go
 func (w *Worker) Queue(msg interface{}) error
 ```
-Queue adds the msg to the worker to be processed.
+Queue adds the msg to the worker to be processed as well as verifying that
+the msg passed in is not a pointer and that the processing queue is started.
+
+
+
+## type WorkerOpts
+``` go
+type WorkerOpts struct {
+    Interval time.Duration
+    Size     int
+    Verbose  bool
+    Logger   *log.Logger
+}
+```
+WorkerOpts is the options that are needed to create a new Worker.
+
+
+
+
+
+
+
+
 
 
 
