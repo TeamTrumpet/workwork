@@ -13,7 +13,6 @@ package workwork
 import (
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"sync"
 	"time"
@@ -28,6 +27,11 @@ const (
 	internalGoRoutineAsyncMax = 500
 )
 
+// Printfer is an interface for a object which can Printf.
+type Printfer interface {
+	Printf(format string, v ...interface{})
+}
+
 // WorkFunc describes a function that is executed with the msg for the worker.
 type WorkFunc func(msg []interface{}) error
 
@@ -36,7 +40,7 @@ type Worker struct {
 	Interval time.Duration
 	Size     int
 	Verbose  bool
-	Logger   *log.Logger
+	Logger   Printfer
 
 	work     WorkFunc
 	msgs     chan interface{}
@@ -57,7 +61,7 @@ type WorkerOpts struct {
 	Interval time.Duration
 	Size     int
 	Verbose  bool
-	Logger   *log.Logger
+	Logger   Printfer
 }
 
 // NewWorker creates a new worker based on the spec provided. It will allow the
